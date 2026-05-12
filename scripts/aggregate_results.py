@@ -24,9 +24,29 @@ DIMENSIONS = [
     "固定资产折旧",
     "存货",
     "资产减值",
+    "预计负债",
+    "递延所得税资产",
+    "建造合同",
+    "企业合并PPA",
     "管理层基调",
     "其他警示信号",
 ]
+
+# Short labels for table headers
+DIM_SHORT = {
+    "研发费用": "研发",
+    "商业信用与收入": "信用",
+    "坏账计提": "坏账",
+    "固定资产折旧": "折旧",
+    "存货": "存货",
+    "资产减值": "减值",
+    "预计负债": "预计负债",
+    "递延所得税资产": "DTA",
+    "建造合同": "建造",
+    "企业合并PPA": "PPA",
+    "管理层基调": "基调",
+    "其他警示信号": "警示",
+}
 
 
 def extract_judgment(detail_text):
@@ -106,8 +126,11 @@ def generate_markdown(rows):
     )
 
     # 简表：核心字段
-    table = "| 代码 | 简称 | 年份 | 分类 | 置信度 | 研发 | 信用 | 坏账 | 折旧 | 存货 | 减值 | 基调 | 警示 |\n"
-    table += "|------|------|------|------|--------|------|------|------|------|------|------|------|------|\n"
+    # Build dynamic header from DIM_SHORT
+    dim_headers = "|".join(DIM_SHORT[d] for d in DIMENSIONS)
+    dim_sep = "|".join("------" for _ in DIMENSIONS)
+    table = f"| 代码 | 简称 | 年份 | 分类 | 置信度 | {dim_headers} |\n"
+    table += f"|------|------|------|------|--------|{dim_sep}|\n"
 
     abbrev = {
         "稳健": "✅",
@@ -184,10 +207,11 @@ def generate_xlsx(rows, output_path):
         bottom=Side(style="thin"),
     )
 
-    # 表头
+    # 表头 - use DIMENSIONS (main ones, not 其他警示信号 which goes separately)
+    main_dims = [d for d in DIMENSIONS if d != "其他警示信号"]
     headers = (
         ["股票代码", "公司简称", "报告年份", "分类结果", "置信度"]
-        + ["研发费用", "商业信用", "坏账计提", "固定资产折旧", "存货", "资产减值", "管理层基调"]
+        + main_dims
         + ["警示信号摘要", "综合评语"]
     )
 
@@ -204,7 +228,7 @@ def generate_xlsx(rows, output_path):
             row["股票代码"], row["公司简称"], row["报告年份"],
             row["分类结果"], row["判断置信度"],
         ]
-        for dim in DIMENSIONS[:7]:
+        for dim in main_dims:
             values.append(row[f"{dim}_判断"])
         # 警示信号摘要
         signals = row.get("其他警示信号_摘要", "")
@@ -230,7 +254,8 @@ def generate_xlsx(rows, output_path):
                 aggressive_fill if "不稳健" in classification else neutral_fill
             )
             # 维度列按各自判断着色
-            if col_idx >= 6 and col_idx <= 12:
+            dim_end_col = 5 + len(main_dims)
+            if col_idx >= 6 and col_idx <= dim_end_col:
                 dim_judgment = value
                 if dim_judgment == "稳健":
                     cell.fill = robust_fill
@@ -244,7 +269,7 @@ def generate_xlsx(rows, output_path):
             cell.border = thin_border
 
     # 列宽
-    widths = [12, 14, 8, 10, 8] + [11] * 7 + [20, 50]
+    widths = [12, 14, 8, 10, 8] + [11] * len(main_dims) + [20, 50]
     for col_idx, width in enumerate(widths, 1):
         ws.column_dimensions[get_column_letter(col_idx)].width = width
 
@@ -263,7 +288,7 @@ def generate_xlsx(rows, output_path):
     ws2.cell(row=4, column=2, value=sum(1 for r in rows if r["分类结果"] == "不稳健"))
 
     # 各维度统计
-    for dim_idx, dim in enumerate(DIMENSIONS[:7]):
+    for dim_idx, dim in enumerate(main_dims):
         col = dim_idx + 4
         ws2.cell(row=1, column=col, value=dim).font = Font(bold=True)
         n_robust = sum(1 for r in rows if r[f"{dim}_判断"] == "稳健")
